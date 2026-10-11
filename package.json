@@ -1,0 +1,263 @@
+{
+  "name": "sv-peek",
+  "displayName": "SV Peek",
+  "description": "选中 SystemVerilog/UVM 代码敲一下键，光标旁弹出解释。不用开聊天窗、不用打指令。",
+  "icon": "media/icon.png",
+  "version": "0.5.2",
+  "publisher": "local",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CoffeeBeforeArch7/sv-peek"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Education"
+  ],
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "svPeek.explain",
+        "title": "SV Peek: 解释选中/光标处的代码"
+      },
+      {
+        "command": "svPeek.ask",
+        "title": "SV Peek: 打开追问面板"
+      },
+      {
+        "command": "svPeek.openSettings",
+        "title": "SV Peek: 打开设置",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "svPeek.refresh",
+        "title": "SV Peek: 重问一次（绕过词表和缓存）",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "svPeek.clear",
+        "title": "SV Peek: 清掉当前文件的解释"
+      },
+      {
+        "command": "svPeek.clearCache",
+        "title": "SV Peek: 清空答案缓存"
+      },
+      {
+        "command": "svPeek.reply",
+        "title": "发送",
+        "icon": "$(send)"
+      },
+      {
+        "command": "svPeek.closeThread",
+        "title": "关闭",
+        "icon": "$(close)"
+      },
+      {
+        "command": "svPeek.toSide",
+        "title": "挪到侧边",
+        "icon": "$(layout-sidebar-right)"
+      },
+      {
+        "command": "svPeek.showLog",
+        "title": "SV Peek: 打开日志"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "svPeek.explain",
+        "key": "alt+`",
+        "when": "editorTextFocus && !suggestWidgetVisible && !renameInputVisible"
+      },
+      {
+        "command": "svPeek.explain",
+        "key": "`",
+        "when": "editorTextFocus && editorHasSelection && !suggestWidgetVisible && !renameInputVisible && !inlineSuggestionVisible"
+      },
+      {
+        "command": "svPeek.ask",
+        "key": "alt+shift+`",
+        "when": "editorTextFocus && !suggestWidgetVisible && !renameInputVisible"
+      }
+    ],
+    "configuration": {
+      "title": "SV Peek",
+      "properties": {
+        "svPeek.model": {
+          "type": "string",
+          "default": "gpt-5.4-mini",
+          "markdownDescription": "模型名。任何 OpenAI 兼容端点的模型都行。"
+        },
+        "svPeek.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "markdownDescription": "API 端点。换自建/中转就改这里。"
+        },
+        "svPeek.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "API key。**优先级最高**。留空则依次试环境变量和 key 文件。填在这里会明文存进 settings.json，别提交到 git。"
+        },
+        "svPeek.apiKeyEnv": {
+          "type": "string",
+          "default": "OPENAI_API_KEY",
+          "markdownDescription": "从哪个环境变量读 key。注意：从 Dock 点开的 VSCode **不继承** shell 里 export 的变量，这条多半是空的。"
+        },
+        "svPeek.apiKeyFile": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "可选。一个 JSON 文件的路径，key 放在它的 `llm_api_key` 字段里（字段名见 `svPeek.apiKeyFileField`）。支持 `~` 开头。留空就不读文件。"
+        },
+        "svPeek.apiKeyFileField": {
+          "type": "string",
+          "default": "llm_api_key",
+          "markdownDescription": "key 文件里取哪个字段。"
+        },
+        "svPeek.maxTokens": {
+          "type": "number",
+          "default": 300,
+          "markdownDescription": "答案上限。参数名发出去是 `max_completion_tokens`（gpt-5 系列不认 `max_tokens`）。答案本来就限死 2-4 行，调大只会让它啰嗦。"
+        },
+        "svPeek.temperature": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": 0.2,
+          "markdownDescription": "设成 `null` 就完全不发这个参数。`gpt-5.6` / `o1` / `o3` / `o4` 开头的模型会自动跳过（它们收到就 400）。"
+        },
+        "svPeek.timeoutMs": {
+          "type": "number",
+          "default": 20000,
+          "markdownDescription": "单次请求超时（毫秒）。"
+        },
+        "svPeek.contextLines": {
+          "type": "number",
+          "default": 20,
+          "markdownDescription": "送给模型的上下文行数（选区前后各取这么多行）。`solve a before b` 这类离开上下文答不准。"
+        },
+        "svPeek.maxChars": {
+          "type": "number",
+          "default": 2000,
+          "markdownDescription": "选区超过就截断，防手滑全选整个文件。"
+        },
+        "svPeek.contextMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "file",
+            "window"
+          ],
+          "default": "auto",
+          "markdownEnumDescriptions": [
+            "文件不超过 `fileContextMaxChars` 就整个发，超了退回窗口",
+            "总是发整个文件",
+            "只发选区前后各 `contextLines` 行"
+          ],
+          "markdownDescription": "送多少上下文给模型。整文件能答「这个信号在哪声明的、被谁驱动」，而且文件正文是不变的 prompt 前缀，同一文件连问时从第二问起命中前缀缓存。"
+        },
+        "svPeek.fileContextMaxChars": {
+          "type": "number",
+          "default": 24000,
+          "markdownDescription": "`auto` 模式下，文件超过这么多字符就退回窗口模式。24000 字符约 7k token。"
+        },
+        "svPeek.showMeta": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "在 hover 底部显示模型名 / 耗时 / token 用量。调试用，默认关。"
+        },
+        "svPeek.askUi": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "panel"
+          ],
+          "default": "inline",
+          "markdownEnumDescriptions": [
+            "内联在代码行下方（Comment Thread）。滚动不消失，自带输入框",
+            "右侧独立 webview 面板。适合长对话"
+          ],
+          "markdownDescription": "追问界面放在哪。`inline` 贴着代码，`panel` 开在右边。"
+        },
+        "svPeek.inlinePosition": {
+          "type": "string",
+          "enum": [
+            "above",
+            "below"
+          ],
+          "default": "above",
+          "markdownEnumDescriptions": [
+            "显示在那行代码**上方**。答案 → 那一行 → 后面的逻辑连成一片，接着往下读不断层",
+            "显示在那行代码**下方**（评论控件的常规位置）"
+          ],
+          "markdownDescription": "内联追问框挂在哪。控件是把代码顶开而不是盖住，两种挂法位移一样，但挂上方不会把你问的那行和它后面的逻辑劈开。"
+        },
+        "svPeek.interviewLine": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "词表条目里显示「面试」提示行。**只影响本地词表**——模型给的答案永远不带这一行（实测它做不到只在值得时才写，会给任何东西编个理由）。想要模型的面试角度，在追问里直接问一句。"
+        },
+        "svPeek.showPending": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "问模型时先弹一个「正在问模型…」占位。**默认关，且不建议开**：VSCode 没有关闭 hover 的 API，占位弹出来之后内容刷不掉，你会盯着一个永远转圈的旧画面，而请求其实 1 秒就回来了。"
+        }
+      }
+    },
+    "menus": {
+      "comments/commentThread/context": [
+        {
+          "command": "svPeek.reply",
+          "group": "inline",
+          "when": "commentController == svPeek"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "svPeek.toSide",
+          "group": "navigation@1",
+          "when": "commentController == svPeek"
+        },
+        {
+          "command": "svPeek.closeThread",
+          "group": "navigation@2",
+          "when": "commentController == svPeek"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "svPeek.reply",
+          "when": "false"
+        },
+        {
+          "command": "svPeek.closeThread",
+          "when": "false"
+        },
+        {
+          "command": "svPeek.toSide",
+          "when": "false"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "test": "tsc -p . && node tests/glossary.test.js",
+    "package": "tsc -p . && vsce package --no-dependencies",
+    "install-local": "npm run package && code --install-extension sv-peek-0.5.2.vsix --force"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "1.85.0",
+    "typescript": "^5.7.0",
+    "@vscode/vsce": "^3.2.0"
+  }
+}

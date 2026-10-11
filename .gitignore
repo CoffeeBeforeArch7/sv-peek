@@ -1,0 +1,12 @@
+node_modules/
+out/
+*.vsix
+.DS_Store
+
+# 保险丝：这些永远不该进仓库
+*secrets*.json
+.env
+.env.*
+*.pem
+*.key
+!media/*.png
